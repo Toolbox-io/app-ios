@@ -129,6 +129,12 @@ extension View {
             )
         )
     }
+
+    @inlinable nonisolated func invisibleAndDisabled(_ condition: Bool) -> some View {
+        return self
+            .opacity(condition ? 0 : 1)
+            .disabled(condition)
+    }
 }
 
 extension TabView {

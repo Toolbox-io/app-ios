@@ -1,7 +1,22 @@
 import SwiftUI
 import LocalAuthentication
+import CryptoKit
+
+enum AuthMode {
+    case enterPassword
+    case enterOldPassword
+    case enterNewPassword
+    case confirmNewPassword
+}
 
 struct AuthView: View {
+    @AppStorage("allowBiometric") private var allowBiometric = false
+    @AppStorage("passwordLockHash") private var passwordLockHash: String = ""
+
+    let mode: AuthMode
+    let onSuccess: ((String?) -> Void)?
+    let newPassword: String?
+
     @State private var enteredPin = ""
     @State private var isCorrectPin = false
     @State private var shake = false
@@ -13,6 +28,15 @@ struct AuthView: View {
     @State private var animateErase = false
     @State private var spinnerRotation = 0.0
     @Environment(\.dismiss) var dismiss
+    
+    private var title: String {
+        switch mode {
+        case .enterPassword: return "Enter password"
+        case .enterOldPassword: return "Enter old password"
+        case .enterNewPassword: return "Enter new password"
+        case .confirmNewPassword: return "Confirm new password"
+        }
+    }
     
     func authenticate() {
         let context = LAContext()
@@ -28,6 +52,7 @@ struct AuthView: View {
                 if success {
                     startCheckPinAnimation(true)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        onSuccess?(nil)
                         dismiss()
                     }
                 } else {
@@ -42,7 +67,7 @@ struct AuthView: View {
     
     var body: some View {
         VStack(spacing: 20) {
-            Text("Введите PIN-код")
+            Text(title)
                 .font(.title)
                 .padding(.bottom, 20)
             
@@ -109,6 +134,7 @@ struct AuthView: View {
                             .clipShape(Circle())
                             .shadow(radius: 5)
                     }
+                    .invisibleAndDisabled(!allowBiometric || mode == .enterOldPassword || mode == .enterNewPassword || mode == .confirmNewPassword)
                     numberButton(text: "0")
                     eraseButton()
                 }
@@ -168,7 +194,9 @@ struct AuthView: View {
                     dotScale[index] = 0.1
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    enteredPin.removeLast()
+                    if enteredPin.count > 0 {
+                        enteredPin.removeLast()
+                    }
                     dotScale[index] = 1.0
                 }
             }
@@ -205,41 +233,62 @@ struct AuthView: View {
     
     // Проверка введенного PIN
     private func checkPin(_ success: Bool?) {
-        if success != nil && success.unsafelyUnwrapped {
-            
-        }
-        
-        if enteredPin == "1234" || (success != nil && success.unsafelyUnwrapped) {
-            isCorrectPin = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        switch mode {
+        case .enterPassword, .enterOldPassword:
+            let hash = Self.hashPin(enteredPin)
+            print("stored hash: \(passwordLockHash), generated: \(hash)")
+            if hash == passwordLockHash {
+                isCorrectPin = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    onSuccess?(enteredPin)
+                    dismiss()
+                }
+            } else {
+                failAnimation()
+            }
+        case .enterNewPassword:
+            onSuccess?(enteredPin)
+            // dismiss()
+        case .confirmNewPassword:
+            if enteredPin == newPassword {
+                passwordLockHash = Self.hashPin(enteredPin)
+                print("generated hash: \(passwordLockHash)")
+                onSuccess?(enteredPin)
                 dismiss()
+            } else {
+                failAnimation()
             }
-        } else {
-            // Step 4: Morph spinner back to dots and erase
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isChecking = false
-                showDots = true
-                combineDots = false
-            }
-            // Step 5: Animate erase
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                animateErase = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    animateErase = false
-                    enteredPin = ""
-                    dotScale = [1, 1, 1, 1]
-                    // Step 6: Shake
+        }
+    }
+    
+    private func failAnimation() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isChecking = false
+            showDots = true
+            combineDots = false
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            animateErase = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                animateErase = false
+                enteredPin = ""
+                dotScale = [1, 1, 1, 1]
+                withAnimation {
+                    shake.toggle()
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     withAnimation {
                         shake.toggle()
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        withAnimation {
-                            shake.toggle()
-                        }
                     }
                 }
             }
         }
+    }
+    
+    static func hashPin(_ pin: String) -> String {
+        let data = Data(pin.utf8)
+        let hash = SHA256.hash(data: data)
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
     }
 }
 
@@ -270,5 +319,5 @@ struct LoadingSpinner: View {
 }
 
 #Preview {
-    AuthView()
+    AuthView(mode: .enterPassword, onSuccess: nil, newPassword: nil)
 }
