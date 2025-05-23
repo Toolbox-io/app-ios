@@ -19,7 +19,12 @@ struct PrivacyOverlayViewModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .overlay {
-                if dontShowInRecents && (state.showPrivacyOverlay || (state.privacyOverlayOpacity < 1.0 && state.privacyOverlayOpacity != 0)) {
+                if (
+                    dontShowInRecents && (
+                        state.showPrivacyOverlay ||
+                        (state.privacyOverlayOpacity < 1.0 && state.privacyOverlayOpacity != 0)
+                    )
+                ) {
                     VisualEffectBlur(blurRadius: 20)
                         .ignoresSafeArea()
                         .opacity(state.privacyOverlayOpacity)
