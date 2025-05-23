@@ -9,6 +9,8 @@ import SwiftUI
 
 @main
 struct Toolbox_ioApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
+    
     var body: some Scene {
         WindowGroup {
             ContentView()

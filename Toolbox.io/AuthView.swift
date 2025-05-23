@@ -9,6 +9,12 @@ enum AuthMode {
     case confirmNewPassword
 }
 
+class PrivacyOverlayAuthInProgress {
+    static let shared = PrivacyOverlayAuthInProgress()
+    private init() {}
+    var isAuthenticating = false
+}
+
 struct AuthView: View {
     @AppStorage("allowBiometric") private var allowBiometric = false
     @AppStorage("passwordLockHash") private var passwordLockHash: String = ""
@@ -21,11 +27,11 @@ struct AuthView: View {
     @State private var isCorrectPin = false
     @State private var shake = false
     @State private var dotScale: [CGFloat] = [1, 1, 1, 1]
+    @State private var dotOpacity: [Double] = [1, 1, 1, 1]
     @State private var pressedButton: String? = nil
     @State private var isChecking = false
     @State private var showDots = true
     @State private var combineDots = false
-    @State private var animateErase = false
     @State private var spinnerRotation = 0.0
     @Environment(\.dismiss) var dismiss
     
@@ -38,16 +44,34 @@ struct AuthView: View {
         }
     }
     
+    private var biometricType: LABiometryType {
+        let context = LAContext()
+        _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        return context.biometryType
+    }
+    private var biometricIcon: String {
+        switch biometricType {
+        case .faceID: return "faceid"
+        case .touchID: return "touchid"
+        default: return "faceid"
+        }
+    }
+    private var isBiometricAvailable: Bool {
+        let context = LAContext()
+        return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+    }
+    
     func authenticate() {
         let context = LAContext()
         var error: NSError?
 
         // check whether biometric authentication is possible
         if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
-            // it's possible, so go ahead and use it
+            PrivacyOverlayAuthInProgress.shared.isAuthenticating = true
             let reason = "We need to unlock your data."
 
             context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, authenticationError in
+                PrivacyOverlayAuthInProgress.shared.isAuthenticating = false
                 // authentication has now completed
                 if success {
                     startCheckPinAnimation(true)
@@ -74,14 +98,12 @@ struct AuthView: View {
             ZStack {
                 if showDots {
                     HStack(spacing: combineDots ? -20 : 16) {
-                        ForEach(0..<4, id: \.self) { index in
+                        ForEach(0..<4, id: \ .self) { index in
                             Circle()
                                 .fill(index < enteredPin.count ? Color.primary : Color.secondary.opacity(0.2))
                                 .frame(width: 20, height: 20)
                                 .scaleEffect(dotScale[index])
-                                .opacity(animateErase && index < enteredPin.count ? 0 : 1)
-                                .animation(.easeInOut(duration: 0.25).delay(animateErase ? Double(index) * 0.05 : 0), value: animateErase)
-                                .animation(.spring(response: 0.3, dampingFraction: 0.5), value: dotScale[index])
+                                .opacity(dotOpacity[index])
                         }
                     }
                     .modifier(Shake(animatableData: CGFloat(shake ? 1 : 0)))
@@ -125,7 +147,7 @@ struct AuthView: View {
                     Button(action: {
                         authenticate()
                     }) {
-                        Image(systemName: "faceid")
+                        Image(systemName: biometricIcon)
                             .font(.largeTitle)
                             .padding()
                             .frame(width: 70, height: 70)
@@ -134,7 +156,7 @@ struct AuthView: View {
                             .clipShape(Circle())
                             .shadow(radius: 5)
                     }
-                    .invisibleAndDisabled(!allowBiometric || mode == .enterOldPassword || mode == .enterNewPassword || mode == .confirmNewPassword)
+                    .invisibleAndDisabled(!allowBiometric || !isBiometricAvailable || mode == .enterOldPassword || mode == .enterNewPassword || mode == .confirmNewPassword)
                     numberButton(text: "0")
                     eraseButton()
                 }
@@ -144,10 +166,10 @@ struct AuthView: View {
         .onAppear {
             isCorrectPin = false
             dotScale = [1, 1, 1, 1]
+            dotOpacity = [1, 1, 1, 1]
             showDots = true
             isChecking = false
             combineDots = false
-            animateErase = false
             spinnerRotation = 0
         }
     }
@@ -156,14 +178,14 @@ struct AuthView: View {
     private func numberButton(text: String) -> some View {
         Button(action: {
             pressedButton = text
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) {
-                if enteredPin.count < 4 {
+            if enteredPin.count < 4 {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
                     enteredPin += text
                     dotScale[enteredPin.count - 1] = 1.3
                 }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
                     dotScale = [1, 1, 1, 1]
                 }
                 pressedButton = nil
@@ -268,11 +290,10 @@ struct AuthView: View {
             combineDots = false
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-            animateErase = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                animateErase = false
+            eraseDotsAnimated {
                 enteredPin = ""
                 dotScale = [1, 1, 1, 1]
+                dotOpacity = [1, 1, 1, 1]
                 withAnimation {
                     shake.toggle()
                 }
@@ -283,6 +304,25 @@ struct AuthView: View {
                 }
             }
         }
+    }
+    
+    private func eraseDotsAnimated(completion: @escaping () -> Void) {
+        let count = enteredPin.count
+        guard count > 0 else { completion(); return }
+        func animateDot(_ index: Int) {
+            guard index >= 0 else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: completion)
+                return
+            }
+            withAnimation(.easeInOut(duration: 0.18)) {
+                dotScale[index] = 0.1
+                dotOpacity[index] = 0.0
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                animateDot(index - 1)
+            }
+        }
+        animateDot(count - 1)
     }
     
     static func hashPin(_ pin: String) -> String {

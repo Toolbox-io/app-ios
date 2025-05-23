@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import LocalAuthentication
 
 struct SettingsView: View {
     @AppStorage("theme") private var theme = "system"
@@ -24,6 +25,23 @@ struct SettingsView: View {
         case enterOld
         case enterNew
         case confirmNew
+    }
+
+    private var biometricType: LABiometryType {
+        let context = LAContext()
+        _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        return context.biometryType
+    }
+    private var biometricIcon: String {
+        switch biometricType {
+        case .faceID: return "faceid"
+        case .touchID: return "touchid"
+        default: return "faceid"
+        }
+    }
+    private var isBiometricAvailable: Bool {
+        let context = LAContext()
+        return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
     }
 
     var body: some View {
@@ -47,8 +65,9 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
                 Toggle(isOn: $allowBiometric) {
-                    Label("Allow biometric", systemImage: "faceid")
+                    Label("Allow biometric", systemImage: biometricIcon)
                 }
+                .disabled(!isBiometricAvailable)
                 Toggle(isOn: $dontShowInRecents) {
                     Label("Don't show in recents", systemImage: "eye.slash")
                 }

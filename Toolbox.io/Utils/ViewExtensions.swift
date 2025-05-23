@@ -137,10 +137,6 @@ extension View {
     }
 }
 
-extension TabView {
-    
-}
-
 @inlinable func IconButton(_ systemName: String) -> some View {
     Image(systemName: systemName)
         .font(.headline)
@@ -169,4 +165,25 @@ extension TabView {
 
 @inlinable func openURL(_ url: String) {
     UIApplication.shared.open(URL(string: url).unsafelyUnwrapped)
+}
+
+// VisualEffectBlur for iOS 15+ with customizable radius
+struct VisualEffectBlur: UIViewRepresentable {
+    var blurRadius: Double
+    func makeUIView(context: Context) -> UIVisualEffectView {
+        let blur = UIBlurEffect(style: .systemMaterial)
+        let view = UIVisualEffectView(effect: blur)
+        view.layer.masksToBounds = true
+        view.clipsToBounds = true
+        // Custom blur radius (iOS 15+ private API, not App Store safe, but for demo):
+        if let blurLayer = view.layer.sublayers?.first(where: { String(describing: type(of: $0)).contains("BackdropLayer") }) {
+            blurLayer.setValue(blurRadius, forKeyPath: "filters.gaussianBlur.inputRadius")
+        }
+        return view
+    }
+    func updateUIView(_ uiView: UIVisualEffectView, context: Context) {
+        if let blurLayer = uiView.layer.sublayers?.first(where: { String(describing: type(of: $0)).contains("BackdropLayer") }) {
+            blurLayer.setValue(blurRadius, forKeyPath: "filters.gaussianBlur.inputRadius")
+        }
+    }
 }
